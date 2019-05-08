@@ -21,6 +21,8 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -63,6 +65,8 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/cold-springs-fire/
+docs/gallery_vignettes/
 
 # PyBuilder
 target/
@@ -96,6 +100,8 @@ ENV/
 
 # mkdocs documentation
 /site
+doc/source/gallery
+doc/source/gallery_vignettes
 
 # mypy
 .mypy_cache/
@@ -107,6 +113,13 @@ ENV/
 # Testing files
 earthpy/deprecated.py
 earthpy/testing.py
+earthpy/ignored_script.py
 
 # OS stuff
 .DS_Store
+earthpy/tests/test_ignored_script.py
+
+pip-wheel-metadata/
+earthpy-dev/
+earthpy/tests/cassettes/
+*.ipynb

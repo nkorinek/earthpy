@@ -1,20 +1,28 @@
-"A module to clip vector data using geopandas"
+"""
+earthpy.clip
+============
+
+A module to clip vector data using GeoPandas.
+
+"""
+
+import pandas as pd
+import geopandas as gpd
 
 # TODO: Clip poly should use OVERLAY not spatial indexing + intersects
 
 
 def _clip_points(shp, clip_obj):
-    """ A function to clip point geometry using geopandas. Takes an
-    input point GeoDataFrame that will be clipped to the clip_obj
-    GeoDataFrame.
+    """Clip point geometry to the clip_obj GeoDataFrame extent.
 
-    Points that intersect with the geometry of clip_obj are extracted
-    and returned.
+    Clip an input point GeoDataFrame to the polygon extent of the clip_obj
+    parameter. Points that intersect the clip_obj geometry are extracted with
+    associated attributes and returned.
 
     Parameters
     ----------
     shp : GeoDataFrame
-        Composed of point geometry that is clipped to clip_obj
+        Composed of point geometry that is clipped to clip_obj.
 
     clip_obj : GeoDataFrame
         Reference polygon for clipping.
@@ -23,28 +31,23 @@ def _clip_points(shp, clip_obj):
     -------
     GeoDataFrame
         The returned GeoDataFrame is a subset of shp that intersects
-        with clip_obj
+        with clip_obj.
     """
     poly = clip_obj.geometry.unary_union
     return shp[shp.geometry.intersects(poly)]
 
 
 def _clip_line_poly(shp, clip_obj):
-    """A function to clip line and polygon data using geopandas.
+    """Clip line and polygon geometry to the clip_obj GeoDataFrame extent.
 
-    Takes an input GeoDataFrame that is used as the clipped data, and a second
-    GeoDataFrame that is used as the clipping object or reference area.
-
-    A spatial index is created around the shp input and is then intersected
-    with the bounding box of the clip_obj.
-
-    Data within this intersection is extracted from shp and the resulting
-    subset is the output of the function.
+    Clip an input line or polygon to the polygon extent of the clip_obj
+    parameter. Lines or Polygons that intersect the clip_obj geometry are
+    extracted with associated attributes and returned.
 
     Parameters
     ----------
     shp : GeoDataFrame
-        Line or polygon geometry that is clipped to clip_obj
+        Line or polygon geometry that is clipped to clip_obj.
 
     clip_obj : GeoDataFrame
         Reference polygon for clipping.
@@ -74,13 +77,74 @@ def _clip_line_poly(shp, clip_obj):
     return clipped[clipped.geometry.notnull()]
 
 
+def _clip_multi_poly_line(shp, clip_obj):
+    """Clip multi lines and polygons to the clip_obj GeoDataFrame extent.
+
+    Clip an input multi line or polygon to the polygon extent of the clip_obj
+    parameter. Lines or Polygons that intersect the clip_obj geometry are
+    extracted with associated attributes and returned.
+
+    Parameters
+    ----------
+    shp : GeoDataFrame
+        multiLine or multipolygon geometry that is clipped to clip_obj.
+
+    clip_obj : GeoDataFrame
+        Reference polygon for clipping.
+
+    Returns
+    -------
+    GeoDataFrame
+        The returned GeoDataFrame is a clipped subset of shp
+        that intersects with clip_obj.
+    """
+
+    # This feels super hacky
+    lines_exist = False
+    polys_exist = False
+    # Clip multi polygons
+    clipped = _clip_line_poly(shp.explode().reset_index(level=[1]), clip_obj)
+
+    # If there are lines, handle line dissolves
+    if any(clipped.geometry.type == "MultiLineString") or any(
+        clipped.geometry.type == "LineString"
+    ):
+        lines_exist = True
+        lines = clipped[
+            (clipped.geometry.type == "MultiLineString")
+            | (clipped.geometry.type == "LineString")
+        ]
+        line_diss = lines.dissolve(by=[lines.index]).drop(columns="level_1")
+
+    # If there are poly's handle polys
+    if any(clipped.geometry.type == "MultiPolygon") or any(
+        clipped.geometry.type == "Polygon"
+    ):
+        polys_exist = True
+        # Just get the polygons
+        polys = clipped[clipped.geometry.type == "Polygon"]
+        poly_diss = polys.dissolve(by=[polys.index]).drop(columns="level_1")
+
+        # TODO if this is a poly input, can you merge lines and polys (unary_union)??
+        # TODO handle -- All polys, 2) polys and lines and then 3 just lines (do we want to do this?)
+        # Dissolve the polys and lines back together
+        # If both lines and polys exist combine and return
+        # note that this isn't ideal as we probably want to think this through
+        # this is pretty sloppy
+    if lines_exist and polys_exist:
+        return gpd.GeoDataFrame(
+            pd.concat([poly_diss, line_diss], ignore_index=True)
+        )
+    elif lines_exist:
+        return line_diss
+    else:
+        return poly_diss
+
+
 def clip_shp(shp, clip_obj):
-    """A function to clip points, lines, polygon geometries based on an input
-    geometry.
+    """Clip points, lines, or polygon geometries to the clip_obj extent.
 
-    Both layers must be in the same Coordinate Reference System (CRS).
-
-    Point, line, or polygon data in geopandas geodataframe format will
+    Both layers must be in the same Coordinate Reference System (CRS) and will
     be clipped to the full extent of the clip object.
 
     If there are multiple polygons in clip_obj,
@@ -91,10 +155,8 @@ def clip_shp(shp, clip_obj):
     ----------
     shp : GeoDataFrame
           Vector layer (point, line, polygon) to be clipped to clip_obj.
-
     clip_obj : GeoDataFrame
           Polygon vector layer used to clip shp.
-
           The clip_obj's geometry is dissolved into one geometric feature
           and intersected with shp.
 
@@ -106,7 +168,6 @@ def clip_shp(shp, clip_obj):
 
     Examples
     --------
-
     Clipping points (glacier locations in the state of Colorado) with
     a polygon (the boundary of Rocky Mountain National Park):
 
@@ -145,23 +206,61 @@ def clip_shp(shp, clip_obj):
         clip_obj.geometry
     except AttributeError:
         raise AttributeError(
-            """Please make sure that your input and clip
-                             GeoDataFrames have a valid
-                             geometry column"""
+            "Please make sure that your input and clip GeoDataFrames have a"
+            " valid geometry column"
         )
+
+    # if clip_obj["geometry"].iloc[0].type != "Polygon":
+    # raise AttributeError("Trying to clip an object with something other then a polygon.")
 
     if not any(shp.intersects(clip_obj.unary_union)):
         raise ValueError("Shape and crop extent do not overlap.")
 
-    # Multipolys / point / line don't clip properly
-    if "Multi" in str(clip_obj.geom_type) or "Multi" in str(shp.geom_type):
-        raise ValueError(
-            """Clip doesn't currently support multipart
-        geometries. Consider using .explode to create
-        unique features in your GeoDataFrame"""
-        )
+    # if any(clipped.geometry.type == "MultiPolygon"):
+    #     _clip_multi_poly(shp, clip_obj)
 
+    # Multipolys / point / line clip differently then non-multi features.
+    # TODO turn into a multi point clip function
+    if any(shp.geometry.type == "MultiPoint"):
+        # if "Multi" in str(shp.geom_type):
+        if (
+            shp["geometry"].iloc[0].type == "Point"
+            or shp["geometry"].iloc[0].type == "MultiPoint"
+        ):
+            # This line works
+            clipped = _clip_points(
+                shp.explode().reset_index(level=[1]), clip_obj
+            )
+            return clipped.dissolve(by=[clipped.index]).drop(
+                columns="level_1"
+            )[shp.columns.tolist()]
+        # else:
+        # If there are multi lines or polygons handle the complex geoms
+    if any(shp.geometry.type == "MultiPolygon") or any(
+        shp.geometry.type == "MultiLineString"
+    ):
+        return _clip_multi_poly_line(shp, clip_obj)
+        # # Clip multi polygons
+        # clipped = _clip_line_poly(shp.explode().reset_index(level=[1]), clip_obj)
+        # # If there are lines and poly's you can't just dissolve
+        # if any(clipped.geometry.type == "MultiLineString"):
+        #     # Just get the polygons
+        #     polys = clipped[clipped.geometry.type == "Polygon"]
+        #     lines = clipped[clipped.geometry.type == "MultiLineString"]
+        #     # Dissolve the polys and lines back together
+        #     poly_diss = polys.dissolve(by=[polys.index]).drop(columns='level_1')
+        #     line_diss = lines.dissolve(by=[polys.index]).drop(columns='level_1')
+        #
+        # return gpd.GeoDataFrame(pd.concat([poly_diss, line_diss], ignore_index=True))
+        # return clipped.dissolve(by=[clipped.index]).drop(columns='level_1')[shp.columns.tolist()]
+    # elif shp["geometry"].iloc[0].type == "Point":
+    #     return _clip_points(shp, clip_obj)
+    # else:
     if shp["geometry"].iloc[0].type == "Point":
         return _clip_points(shp, clip_obj)
     else:
         return _clip_line_poly(shp, clip_obj)
+
+
+# try:
+#     clipped.geometry.type == "MultiLineString"

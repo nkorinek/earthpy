@@ -19,14 +19,14 @@
 
 # -- Project information -----------------------------------------------------
 
-project = "Earthpy"
-copyright = "2018, Earth Lab"
+project = "EarthPy"
+copyright = "2019, Earth Lab"
 author = "Earth Lab"
 
 # The short X.Y version
-version = ""
+version = "0.6.8"
 # The full version, including alpha/beta/rc tags
-release = ""
+release = "0.6.8"
 
 
 # -- General configuration ---------------------------------------------------
@@ -39,12 +39,22 @@ release = ""
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    "m2r",
+    "matplotlib.sphinxext.plot_directive",
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",
     "sphinx.ext.napoleon",
-    "matplotlib.sphinxext.plot_directive",
     "sphinx.ext.viewcode",
+    "sphinx_gallery.gen_gallery",
 ]
+
+
+sphinx_gallery_conf = {
+    # path to your examples scripts
+    "examples_dirs": "../examples",
+    # path where to save gallery generated examples
+    "gallery_dirs": "gallery_vignettes",
+}
 
 # Show the source code for any plots in the documentation by default
 plot_include_source = True
@@ -55,8 +65,7 @@ templates_path = ["_templates"]
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 #
-# source_suffix = ['.rst', '.md']
-source_suffix = ".rst"
+source_suffix = [".rst", ".md"]
 
 # The master toctree document.
 master_doc = "index"
@@ -77,6 +86,7 @@ exclude_patterns = [
     ".DS_Store",
     "earthpy/tests",
     "earthpy/example-data",
+    "api/earthpy.rst",
     "ignoreme",
 ]
 
