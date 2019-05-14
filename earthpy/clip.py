@@ -9,8 +9,6 @@ A module to clip vector data using GeoPandas.
 import pandas as pd
 import geopandas as gpd
 
-# TODO: Clip poly should use OVERLAY not spatial indexing + intersects
-
 
 def _clip_points(shp, clip_obj):
     """Clip point geometry to the clip_obj GeoDataFrame extent.
@@ -35,6 +33,41 @@ def _clip_points(shp, clip_obj):
     """
     poly = clip_obj.geometry.unary_union
     return shp[shp.geometry.intersects(poly)]
+
+
+def _clip_multi_point(shp, clip_obj):
+    """Clip multi point features to the clip_obj GeoDataFrame extent.
+
+    Clip an input multi point to the polygon extent of the clip_obj
+    parameter. Points that intersect the clip_obj geometry are
+    extracted with associated attributes returned.
+
+    Parameters
+    ----------
+    shp : GeoDataFrame
+        multipoint geometry that is clipped to clip_obj.
+
+    clip_obj : GeoDataFrame
+        Reference polygon for clipping.
+
+    Returns
+    -------
+    GeoDataFrame
+        The returned GeoDataFrame is a clipped subset of shp
+        containing multi-point and point features.
+    """
+
+    if (
+        shp["geometry"].iloc[0].type == "Point"
+        or shp["geometry"].iloc[0].type == "MultiPoint"
+    ):
+        # This line works
+        clipped = _clip_points(shp.explode().reset_index(level=[1]), clip_obj)
+        clipped = clipped.dissolve(by=[clipped.index]).drop(columns="level_1")[
+            shp.columns.tolist()
+        ]
+
+    return clipped
 
 
 def _clip_line_poly(shp, clip_obj):
@@ -102,6 +135,7 @@ def _clip_multi_poly_line(shp, clip_obj):
     # This feels super hacky
     lines_exist = False
     polys_exist = False
+
     # Clip multi polygons
     clipped = _clip_line_poly(shp.explode().reset_index(level=[1]), clip_obj)
 
@@ -125,12 +159,6 @@ def _clip_multi_poly_line(shp, clip_obj):
         polys = clipped[clipped.geometry.type == "Polygon"]
         poly_diss = polys.dissolve(by=[polys.index]).drop(columns="level_1")
 
-        # TODO if this is a poly input, can you merge lines and polys (unary_union)??
-        # TODO handle -- All polys, 2) polys and lines and then 3 just lines (do we want to do this?)
-        # Dissolve the polys and lines back together
-        # If both lines and polys exist combine and return
-        # note that this isn't ideal as we probably want to think this through
-        # this is pretty sloppy
     if lines_exist and polys_exist:
         return gpd.GeoDataFrame(
             pd.concat([poly_diss, line_diss], ignore_index=True)
@@ -210,57 +238,17 @@ def clip_shp(shp, clip_obj):
             " valid geometry column"
         )
 
-    # if clip_obj["geometry"].iloc[0].type != "Polygon":
-    # raise AttributeError("Trying to clip an object with something other then a polygon.")
-
     if not any(shp.intersects(clip_obj.unary_union)):
         raise ValueError("Shape and crop extent do not overlap.")
 
-    # if any(clipped.geometry.type == "MultiPolygon"):
-    #     _clip_multi_poly(shp, clip_obj)
-
-    # Multipolys / point / line clip differently then non-multi features.
-    # TODO turn into a multi point clip function
+    # if there are multi points
     if any(shp.geometry.type == "MultiPoint"):
-        # if "Multi" in str(shp.geom_type):
-        if (
-            shp["geometry"].iloc[0].type == "Point"
-            or shp["geometry"].iloc[0].type == "MultiPoint"
-        ):
-            # This line works
-            clipped = _clip_points(
-                shp.explode().reset_index(level=[1]), clip_obj
-            )
-            return clipped.dissolve(by=[clipped.index]).drop(
-                columns="level_1"
-            )[shp.columns.tolist()]
-        # else:
-        # If there are multi lines or polygons handle the complex geoms
-    if any(shp.geometry.type == "MultiPolygon") or any(
+        return _clip_multi_point(shp, clip_obj)
+    elif shp["geometry"].iloc[0].type == "Point":
+        return _clip_points(shp, clip_obj)
+    elif any(shp.geometry.type == "MultiPolygon") or any(
         shp.geometry.type == "MultiLineString"
     ):
         return _clip_multi_poly_line(shp, clip_obj)
-        # # Clip multi polygons
-        # clipped = _clip_line_poly(shp.explode().reset_index(level=[1]), clip_obj)
-        # # If there are lines and poly's you can't just dissolve
-        # if any(clipped.geometry.type == "MultiLineString"):
-        #     # Just get the polygons
-        #     polys = clipped[clipped.geometry.type == "Polygon"]
-        #     lines = clipped[clipped.geometry.type == "MultiLineString"]
-        #     # Dissolve the polys and lines back together
-        #     poly_diss = polys.dissolve(by=[polys.index]).drop(columns='level_1')
-        #     line_diss = lines.dissolve(by=[polys.index]).drop(columns='level_1')
-        #
-        # return gpd.GeoDataFrame(pd.concat([poly_diss, line_diss], ignore_index=True))
-        # return clipped.dissolve(by=[clipped.index]).drop(columns='level_1')[shp.columns.tolist()]
-    # elif shp["geometry"].iloc[0].type == "Point":
-    #     return _clip_points(shp, clip_obj)
-    # else:
-    if shp["geometry"].iloc[0].type == "Point":
-        return _clip_points(shp, clip_obj)
     else:
         return _clip_line_poly(shp, clip_obj)
-
-
-# try:
-#     clipped.geometry.type == "MultiLineString"
